@@ -2,18 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { Plus, User, BookOpen, CheckCircle, XCircle, LogOut, Eye, EyeOff } from 'lucide-react';
 import { db } from './firebase';
 import { collection, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
-import { getFirestore } from "firebase/firestore";
-import app from "./firebase";
-import { addDoc, collection } from "firebase/firestore";
 
-const db = getFirestore(app);
 
 const StudentQuotaApp = () => {
   // Data siswa dengan password - KOSONG di awal
-  const [students, setStudents] = useState(() => {
-    const savedStudents = localStorage.getItem("students");
-    return savedStudents ? JSON.parse(savedStudents) : [];
-  });
+  const [students, setStudents] = useState([]);
+
+useEffect(() => {
+  const fetchStudents = async () => {
+    try {
+      const querySnapshot = await getDocs(collection(db, "students"));
+      const fetched = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setStudents(fetched);
+    } catch (error) {
+      console.error("❌ Gagal mengambil data dari Firestore:", error);
+    }
+  };
+
+  fetchStudents();
+}, []);
 
 
   // Admin credentials
@@ -36,48 +46,19 @@ const StudentQuotaApp = () => {
   useEffect(() => {
     localStorage.setItem("students", JSON.stringify(students));
   }, [students]);
-  useEffect(() => {
-    const fetchStudentsFromFirebase = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, "students"));
-        const firebaseStudents = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        setStudents(firebaseStudents);
-      } catch (error) {
-        console.error("Gagal mengambil data dari Firebase:", error);
-      }
-    };
-
-    fetchStudentsFromFirebase();
-  }, []);
 
   // Login handler
   const handleLogin = () => {
-    setLoginError('');
-    
-    // Check admin login
-    if (loginForm.username === adminCredentials.username && 
-        loginForm.password === adminCredentials.password) {
-      setCurrentUser({ name: 'Administrator', role: 'admin' });
-      setUserRole('admin');
-      setShowLogin(false);
-      return;
-    }
-
-    // Check student login
-    const student = students.find(s => 
-      s.name.toLowerCase() === loginForm.username.toLowerCase() && 
-      s.password === loginForm.password
+    const user = students.find(
+      s => s.name === loginForm.username && s.password === loginForm.password
     );
 
-    if (student) {
-      setCurrentUser(student);
+    if (user) {
+      setCurrentUser(user);
       setUserRole('student');
       setShowLogin(false);
     } else {
-      setLoginError('Username atau password salah');
+      setLoginError("ID atau password salah.");
     }
   };
 
@@ -93,73 +74,53 @@ const StudentQuotaApp = () => {
   // Admin functions
   const addStudent = async () => {
     if (newStudent.name && newStudent.password && newStudent.totalQuota) {
-      const newStudentData = {
+      const studentData = {
         name: newStudent.name,
         password: newStudent.password,
         quotaUsed: 0,
-        totalQuota: parseInt(newStudent.totalQuota)
+        totalQuota: parseInt(newStudent.totalQuota),
       };
 
       try {
-      // Simpan ke Firestore
-        const docRef = await addDoc(collection(db, "students"), newStudentData);
+      // ⬇️ Tambahkan ke Firestore
+        const docRef = await addDoc(collection(db, "students"), studentData);
 
-      // Update local state juga
-        setStudents(prev => [...prev, { ...newStudentData, id: docRef.id }]);
+      // ⬇️ Tambahkan juga ke local state agar UI langsung update
+        setStudents(prev => [...prev, { id: docRef.id, ...studentData }]);
 
+      // Reset form dan modal
         setNewStudent({ name: '', password: '', totalQuota: '' });
         setShowAddStudent(false);
-      } catch (err) {
-        console.error("Gagal menambahkan ke Firebase:", err);
+
+      } catch (error) {
+        console.error("❌ Gagal menambahkan ke Firestore:", error);
       }
     }
   };
 
-import { updateDoc, doc } from 'firebase/firestore';
-
-  const addQuota = async () => {
+  const addQuota = () => {
     if (selectedStudent && additionalQuota && parseInt(additionalQuota) > 0) {
-      const updatedStudents = students.map(student =>
-        student.id === selectedStudent.id
-          ? { ...student, totalQuota: student.totalQuota + parseInt(additionalQuota) }
-          : student
+      setStudents(prevStudents => 
+        prevStudents.map(student => 
+          student.id === selectedStudent.id 
+            ? { ...student, totalQuota: student.totalQuota + parseInt(additionalQuota) }
+            : student
+        )
       );
-
-      setStudents(updatedStudents);
       setAdditionalQuota('');
       setShowAddQuota(false);
       setSelectedStudent(null);
-
-    // 🔥 Simpan perubahan ke Firebase
-      try {
-        const studentRef = doc(db, "students", selectedStudent.id);
-        await updateDoc(studentRef, {
-          totalQuota: selectedStudent.totalQuota + parseInt(additionalQuota)
-        });
-      } catch (err) {
-        console.error("Gagal update kuota di Firebase:", err);
-      }
     }
   };
 
-import { updateDoc, doc } from "firebase/firestore";
-  const handleUseQuota = async (studentId) => {
-    const updatedStudents = students.map(student =>
-      student.id === studentId && student.quotaUsed < student.totalQuota
-        ? { ...student, quotaUsed: student.quotaUsed + 1 }
-        : student
+  const handleuseQuota = (studentId) => {
+    setStudents(prevStudents => 
+      prevStudents.map(student => 
+        student.id === studentId && student.quotaUsed < student.totalQuota
+          ? { ...student, quotaUsed: student.quotaUsed + 1 }
+          : student
+      )
     );
-
-    setStudents(updatedStudents);
-
-  // Simpan ke Firebase juga
-    const student = updatedStudents.find(s => s.id === studentId);
-    try {
-      const studentRef = doc(db, "students", studentId);
-      await updateDoc(studentRef, { quotaUsed: student.quotaUsed });
-    } catch (err) {
-      console.error("Gagal update ke Firebase:", err);
-    }
   };
 
   // Utility functions
